@@ -397,6 +397,15 @@ async def listar_jobs():
     
     return {"jobs": jobs_summary, "total": len(jobs_summary)}
 
+@app.get("/healthz", summary="Healthcheck", tags=["Infra"])
+async def healthcheck():
+    """Endpoint rápido para verificação de saúde (usado por plataformas de deploy)."""
+    return {
+        "status": "ok",
+        "time": datetime.utcnow().isoformat() + "Z",
+        "jobs": len(job_storage)
+    }
+
 @app.delete("/job/{job_id}", summary="Deletar job")
 async def deletar_job(job_id: str):
     """Deleta um job específico"""

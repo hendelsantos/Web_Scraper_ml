@@ -2,6 +2,10 @@
 builder = "dockerfile"
 
 [deploy]
-healthcheckPath = "/"
-healthcheckTimeout = 300
+healthcheckPath = "/healthz"
+healthcheckTimeout = 120
 restartPolicyType = "always"
+
+# Notas:
+# - healthcheckPath agora usa /healthz (leve e rápido)
+# - Porta exposta configurada no Dockerfile (8000) e sobrescrita via env PORT

@@ -1,16 +1,14 @@
-# Use Python 3.11 slim
+## Base image
 FROM python:3.11-slim
 
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    gcc \
-    g++ \
+## System deps (apenas o essencial)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
     curl \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install Python dependencies
 COPY requirements.txt .
@@ -23,8 +21,13 @@ COPY . .
 # Create temp directory
 RUN mkdir -p /tmp/scraping
 
-# Expose port
-EXPOSE $PORT
+## Definir porta padrão (Railway injeta PORT em runtime)
+ENV PORT=8000
 
-# Run the application
-CMD uvicorn api:app --host 0.0.0.0 --port $PORT
+EXPOSE 8000
+
+## Healthcheck simples (opcional para ambientes que suportam)
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD curl -fsS http://localhost:${PORT}/healthz || exit 1
+
+## Executar aplicação
+CMD ["sh", "-c", "uvicorn api:app --host 0.0.0.0 --port ${PORT} --log-level info"]
