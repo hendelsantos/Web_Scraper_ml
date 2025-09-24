@@ -408,7 +408,17 @@ async def deletar_job(job_id: str):
 
 if __name__ == "__main__":
     import uvicorn
-    # Usar variáveis de ambiente para Railway
+    # Configuração para Railway/produção
     port = int(os.environ.get("PORT", 8000))
     host = os.environ.get("HOST", "0.0.0.0")
-    uvicorn.run(app, host=host, port=port)
+    
+    print(f"🚀 Iniciando servidor em {host}:{port}")
+    print(f"📡 Interface: http://{host}:{port}")
+    print(f"📚 Docs: http://{host}:{port}/docs")
+    
+    uvicorn.run(
+        app, 
+        host=host, 
+        port=port,
+        log_level="info"
+    )

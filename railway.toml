@@ -2,15 +2,6 @@
 builder = "dockerfile"
 
 [deploy]
-healthcheckPath = "/api"
+healthcheckPath = "/"
 healthcheckTimeout = 300
-restartPolicyType = "on_failure"
-restartPolicyMaxRetries = 3
-
-[[deploy.environmentVariables]]
-name = "PORT"
-value = "8000"
-
-[[deploy.environmentVariables]]  
-name = "HOST"
-value = "0.0.0.0"
+restartPolicyType = "always"

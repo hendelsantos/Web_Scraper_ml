@@ -1,30 +1,30 @@
-# Usar Python 3.11 slim como base
+# Use Python 3.11 slim
 FROM python:3.11-slim
 
-# Definir diretório de trabalho
+# Set working directory
 WORKDIR /app
 
-# Instalar dependências do sistema necessárias para web scraping
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
     curl \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
-# Copiar requirements primeiro para cache das dependências
+# Copy requirements and install Python dependencies
 COPY requirements.txt .
-
-# Instalar dependências Python
+RUN pip install --no-cache-dir --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copiar todo o código da aplicação
+# Copy application code
 COPY . .
 
-# Criar diretório para arquivos temporários
+# Create temp directory
 RUN mkdir -p /tmp/scraping
 
-# Expor a porta que a aplicação usa
-EXPOSE 8000
+# Expose port
+EXPOSE $PORT
 
-# Comando para rodar a aplicação
-CMD ["python", "api.py"]
+# Run the application
+CMD uvicorn api:app --host 0.0.0.0 --port $PORT
