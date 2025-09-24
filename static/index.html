@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎯 Web Scraper Universal</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <i class="fas fa-search"></i>
+                <h1>Web Scraper </h1>
+            </div>
+            <p class="subtitle">Faça scraping de produtos de forma simples e rápida</p>
+        </header>
+
+        <!-- Main Form -->
+        <main class="main-content">
+            <div class="form-container">
+                <form id="scraperForm" class="scraper-form">
+                    <div class="form-group">
+                        <label for="site">
+                            <i class="fas fa-globe"></i>
+                            Site para Pesquisa
+                        </label>
+                        <select id="site" name="site" required>
+                            <option value="">Carregando sites...</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="search_term">
+                            <i class="fas fa-search"></i>
+                            Termo de Busca
+                        </label>
+                        <input 
+                            type="text" 
+                            id="search_term" 
+                            name="search_term" 
+                            placeholder="Ex: PlayStation 5, iPhone 15, notebook gamer..."
+                            required
+                        >
+                    </div>
+
+                    <button type="submit" class="btn-primary" id="submitBtn">
+                        <i class="fas fa-rocket"></i>
+                        Iniciar Scraping
+                    </button>
+                </form>
+            </div>
+
+            <!-- Status Area -->
+            <div class="status-container" id="statusContainer" style="display: none;">
+                <div class="status-header">
+                    <h3><i class="fas fa-info-circle"></i> Status do Job</h3>
+                    <div class="job-id">Job ID: <span id="jobId"></span></div>
+                </div>
+                
+                <div class="status-content">
+                    <div class="status-indicator">
+                        <div class="status-icon" id="statusIcon">
+                            <i class="fas fa-spinner fa-spin"></i>
+                        </div>
+                        <div class="status-text" id="statusText">Iniciando...</div>
+                    </div>
+                    
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>
+                    
+                    <div class="status-details" id="statusDetails"></div>
+                </div>
+            </div>
+
+            <!-- Results Area -->
+            <div class="results-container" id="resultsContainer" style="display: none;">
+                <div class="results-header">
+                    <h3><i class="fas fa-list"></i> Resultados</h3>
+                    <div class="results-actions">
+                        <button class="btn-secondary" id="downloadBtn">
+                            <i class="fas fa-download"></i>
+                            Baixar Excel
+                        </button>
+                        <button class="btn-secondary" id="newSearchBtn">
+                            <i class="fas fa-plus"></i>
+                            Nova Busca
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="results-summary" id="resultsSummary"></div>
+                
+                <div class="results-table-container">
+                    <table class="results-table" id="resultsTable">
+                        <thead>
+                            <tr>
+                                <th>Produto</th>
+                                <th>Preço</th>
+                                <th>Link</th>
+                                <th>Avaliação</th>
+                                <th>Vendas</th>
+                            </tr>
+                        </thead>
+                        <tbody id="resultsBody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>Desenvolvido por HendelCode usando FastAPI | <a href="/docs" target="_blank">Documentação da API</a></p>
+        </footer>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>

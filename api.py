@@ -1,5 +1,7 @@
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import List, Optional, Dict
 import requests
@@ -9,6 +11,8 @@ import urllib.parse
 import uuid
 import json
 from datetime import datetime
+import os
+import pandas as pd
 
 # ==========================
 # CONFIGURAÇÃO DA API
@@ -29,6 +33,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Servir arquivos estáticos (HTML, CSS, JS)
+static_dir = os.path.join(os.path.dirname(__file__), "static")
+if os.path.exists(static_dir):
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 # ==========================
 # CONFIGURAÇÕES GLOBAIS
@@ -202,9 +211,28 @@ def realizar_scraping(job_id: str, site_config: dict, url_base: str, termo_busca
 # ENDPOINTS DA API
 # ==========================
 
-@app.get("/", summary="Página inicial")
-async def root():
-    """Endpoint raiz da API"""
+@app.get("/", summary="Interface Web")
+async def interface():
+    """Serve a interface web principal"""
+    interface_file = os.path.join(os.path.dirname(__file__), "static", "index.html")
+    if os.path.exists(interface_file):
+        return FileResponse(interface_file)
+    else:
+        return {
+            "message": "🎯 Web Scraper Universal API",
+            "version": "2.0.0",
+            "documentation": "/docs",
+            "interface": "Interface web não encontrada em /static/index.html",
+            "endpoints": {
+                "GET /sites": "Lista sites disponíveis",
+                "POST /scraping": "Inicia um job de scraping",
+                "GET /job/{job_id}": "Consulta status de um job"
+            }
+        }
+
+@app.get("/api", summary="Informações da API")
+async def api_info():
+    """Endpoint com informações da API"""
     return {
         "message": "🎯 Web Scraper Universal API",
         "version": "2.0.0",
@@ -311,6 +339,47 @@ async def consultar_job(job_id: str):
         created_at=job_data["created_at"],
         completed_at=job_data["completed_at"]
     )
+
+@app.get("/job/{job_id}/download", summary="Download dos resultados")
+async def download_job_results(job_id: str):
+    """Faz download dos resultados em formato Excel"""
+    if job_id not in job_storage:
+        raise HTTPException(status_code=404, detail="Job não encontrado")
+    
+    job_data = job_storage[job_id]
+    
+    if job_data["status"] != "completed":
+        raise HTTPException(status_code=400, detail="Job ainda não foi concluído")
+    
+    if not job_data["produtos"]:
+        raise HTTPException(status_code=404, detail="Nenhum produto encontrado para download")
+    
+    try:
+        # Criar DataFrame
+        df = pd.DataFrame(job_data["produtos"])
+        
+        # Salvar em buffer
+        from io import BytesIO
+        buffer = BytesIO()
+        
+        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Produtos')
+        
+        buffer.seek(0)
+        
+        # Retornar arquivo
+        from fastapi.responses import StreamingResponse
+        
+        return StreamingResponse(
+            BytesIO(buffer.read()),
+            media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            headers={
+                "Content-Disposition": f"attachment; filename=scraping_{job_id}.xlsx"
+            }
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao gerar arquivo: {str(e)}")
 
 @app.get("/jobs", summary="Listar todos os jobs")
 async def listar_jobs():

@@ -44,3 +44,4 @@ Thumbs.db
 # Planilhas Excel (opcional - remova se quiser versionar os dados)
 *.xlsx
 *.xls
+api.log
