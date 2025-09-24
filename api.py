@@ -15,6 +15,7 @@ import os
 import pandas as pd
 import random
 import math
+import hashlib
 
 # ==========================
 # CONFIGURAÇÃO DA API
@@ -79,7 +80,7 @@ SITES_SUPORTADOS = {
             "link": ".poly-component__title",
             "avaliacao": "[class*='rating']",
             "reviews": "[class*='review']"
-        },
+    },  # adicionaremos fallback dinâmico no código
         "paginacao": "_Desde_{}"
     },
     "amazon": {
@@ -220,8 +221,30 @@ def realizar_scraping(job_id: str, site_config: dict, url_base: str, termo_busca
 
                 soup = BeautifulSoup(resp.text, "html.parser")
                 itens = soup.select(site_config['seletores']['item'])
-                
+
+                # Fallback alternativo para Mercado Livre (variações de layout)
+                if site_config['nome'] == 'Mercado Livre' and not itens:
+                    alt_selectors = [
+                        'div.ui-search-result__wrapper',
+                        'div.ui-search-result',
+                        'li.ui-search-layout__item shops__layout-item',
+                        'div.poly-card'
+                    ]
+                    for sel in alt_selectors:
+                        itens = soup.select(sel)
+                        if itens:
+                            job_storage[job_id]["progress"] = f"Fallback de seletor aplicado: {sel}"
+                            break
+
                 if not itens:
+                    # Salvar HTML desta página para debug (primeiras 200KB)
+                    try:
+                        debug_path = f"/tmp/scraping/job_{job_id}_pagina_{pagina}_sem_itens.html"
+                        with open(debug_path, 'w', encoding='utf-8') as f:
+                            f.write(resp.text[:200000])
+                        job_storage[job_id]["progress"] = "Nenhum item encontrado - layout pode ter mudado (HTML salvo)."
+                    except Exception:
+                        pass
                     break
 
                 for item in itens:
@@ -490,6 +513,24 @@ async def job_json(job_id: str):
         "job_id": job_id,
         "total": job_data["total_produtos"],
         "produtos": [p.dict() for p in job_data["produtos"]]
+    }
+
+@app.get("/debug/teste_pagina", summary="Teste bruto de captura", tags=["Debug"])
+async def debug_teste_pagina(site: str = "mercado_livre", termo: str = "notebook"):
+    if site not in SITES_SUPORTADOS:
+        raise HTTPException(status_code=400, detail="Site inválido")
+    site_config = SITES_SUPORTADOS[site]
+    url = construir_url_busca(site_config, termo)
+    headers = build_headers()
+    r = requests.get(url, headers=headers, timeout=15)
+    content = r.text
+    h = hashlib.sha256(content.encode('utf-8')).hexdigest()
+    return {
+        "status_code": r.status_code,
+        "url": url,
+        "length": len(content),
+        "sha256": h,
+        "sample_start": content[:400]
     }
 
 @app.delete("/job/{job_id}", summary="Deletar job")
