@@ -17,6 +17,9 @@ import pandas as pd
 import random
 import math
 import hashlib
+from itertools import cycle
+import threading
+import atexit
 
 # ==========================
 # CONFIGURAÇÃO DA API
@@ -69,6 +72,35 @@ def build_headers():
     h["Referer"] = "https://www.google.com"
     return h
 
+# ==========================
+# PROXIES (opcional)
+# Variável de ambiente: SCRAPER_PROXIES="host1:port,host2:port,http://user:pass@host3:3128"
+# ==========================
+def _carregar_proxies():
+    raw = os.environ.get("SCRAPER_PROXIES", "").strip()
+    if not raw:
+        return []
+    proxies = []
+    for part in raw.split(','):
+        p = part.strip()
+        if not p:
+            continue
+        if '://' not in p:
+            p = f"http://{p}"
+        proxies.append(p)
+    return proxies
+
+PROXIES_LIST = _carregar_proxies()
+PROXIES_CYCLE = cycle(PROXIES_LIST) if PROXIES_LIST else None
+
+def _obter_proxy():
+    if not PROXIES_CYCLE:
+        return None
+    try:
+        return next(PROXIES_CYCLE)
+    except Exception:
+        return None
+
 # Dicionário de sites suportados
 SITES_SUPORTADOS = {
     "mercado_livre": {
@@ -96,6 +128,19 @@ SITES_SUPORTADOS = {
             "reviews": ".a-size-base"
         },
         "paginacao": "&page={}"
+    },
+    "ebay": {
+        "nome": "eBay",
+        "base_url": "https://www.ebay.com/sch/i.html?_nkw=",
+        "seletores": {
+            "item": "li.s-item",
+            "nome": ".s-item__title",
+            "preco": ".s-item__price",
+            "link": ".s-item__link",
+            "avaliacao": ".x-star-rating span.clipped",
+            "reviews": ".s-item__reviews-count"
+        },
+        "paginacao": "&_pgn={}"
     }
 }
 
@@ -136,6 +181,38 @@ class JobStatus(BaseModel):
 class SitesResponse(BaseModel):
     sites_disponiveis: Dict[str, str]
 
+PERSIST_FILE = os.environ.get("SCRAPER_JOBS_FILE", "jobs_data.json")
+_lock_persist = threading.Lock()
+
+def _persist_jobs():
+    try:
+        with _lock_persist:
+            serial = {}
+            for jid, data in job_storage.items():
+                serial[jid] = {
+                    k: (v if k != 'produtos' else [p.dict() for p in v]) for k, v in data.items()
+                }
+            with open(PERSIST_FILE, 'w', encoding='utf-8') as f:
+                json.dump(serial, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+def _load_jobs():
+    if not os.path.exists(PERSIST_FILE):
+        return
+    try:
+        with open(PERSIST_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        for jid, jd in data.items():
+            if 'produtos' in jd and isinstance(jd['produtos'], list):
+                jd['produtos'] = [Produto(**p) for p in jd['produtos']]
+            job_storage[jid] = jd
+    except Exception:
+        pass
+
+_load_jobs()
+atexit.register(_persist_jobs)
+
 # ==========================
 # FUNÇÕES AUXILIARES
 # ==========================
@@ -145,6 +222,9 @@ def construir_url_busca(site_config, termo):
         termo_codificado = urllib.parse.quote_plus(termo)
         return f"{site_config['base_url']}/{termo_codificado}"
     elif site_config['nome'] == "Amazon":
+        termo_codificado = urllib.parse.quote_plus(termo)
+        return f"{site_config['base_url']}{termo_codificado}"
+    elif site_config['nome'] == 'eBay':
         termo_codificado = urllib.parse.quote_plus(termo)
         return f"{site_config['base_url']}{termo_codificado}"
     return None
@@ -203,9 +283,12 @@ def realizar_scraping(job_id: str, site_config: dict, url_base: str, termo_busca
             'seletor_principal_hits': 0,
             'fallback_usado': None,
             'possivel_captcha': False,
-            'primeira_pagina_salva': False
+            'primeira_pagina_salva': False,
+            'proxies_habilitados': bool(PROXIES_LIST),
+            'total_proxies': len(PROXIES_LIST),
+            'ultimo_proxy': None,
+            'erros_proxy': 0
         }
-
         while pagina <= max_paginas:
             # Construir URL da página
             if site_config['nome'] == "Mercado Livre":
@@ -218,6 +301,11 @@ def realizar_scraping(job_id: str, site_config: dict, url_base: str, termo_busca
                     url = f"{url_base}&page={pagina}"
                 else:
                     url = url_base
+            elif site_config['nome'] == 'eBay':
+                if pagina > 1:
+                    url = f"{url_base}&_pgn={pagina}"
+                else:
+                    url = url_base
             
             job_storage[job_id]["progress"] = f"Processando página {pagina}..."
             
@@ -227,7 +315,20 @@ def realizar_scraping(job_id: str, site_config: dict, url_base: str, termo_busca
                 backoff_base = float(os.environ.get("SCRAPER_BACKOFF_BASE", "1.5"))
                 while True:
                     headers = build_headers()
-                    resp = sessao.get(url, headers=headers, timeout=15)
+                    proxy = _obter_proxy()
+                    req_kwargs = {"headers": headers, "timeout": 15}
+                    if proxy:
+                        req_kwargs["proxies"] = {"http": proxy, "https": proxy}
+                        job_storage[job_id]['debug']['ultimo_proxy'] = proxy
+                    try:
+                        resp = sessao.get(url, **req_kwargs)
+                    except Exception as proxy_err:
+                        job_storage[job_id]['debug']['erros_proxy'] += 1
+                        if proxy and job_storage[job_id]['debug']['erros_proxy'] < len(PROXIES_LIST) + 3:
+                            # tenta próximo proxy
+                            continue
+                        job_storage[job_id]["progress"] = f"Erro de rede: {proxy_err}"
+                        break
                     job_storage[job_id]['debug']['tentativas'] += 1
                     status = resp.status_code
                     if status == 200:
@@ -334,11 +435,12 @@ def realizar_scraping(job_id: str, site_config: dict, url_base: str, termo_busca
         job_storage[job_id]["produtos"] = produtos
         job_storage[job_id]["completed_at"] = datetime.now().isoformat()
         job_storage[job_id]["progress"] = f"Concluído! {len(produtos)} produtos encontrados."
-        
+        _persist_jobs()
     except Exception as e:
         job_storage[job_id]["status"] = "failed"
         job_storage[job_id]["erro"] = str(e)
         job_storage[job_id]["completed_at"] = datetime.now().isoformat()
+        _persist_jobs()
 
 # ==========================
 # ENDPOINTS DA API
@@ -432,6 +534,7 @@ async def iniciar_scraping(request: ScrapingRequest, background_tasks: Backgroun
             "delay": request.delay
         }
     }
+    _persist_jobs()
     
     # Iniciar processamento em background
     background_tasks.add_task(
@@ -600,7 +703,88 @@ async def deletar_job(job_id: str):
         raise HTTPException(status_code=404, detail="Job não encontrado")
     
     del job_storage[job_id]
+    _persist_jobs()
     return {"message": f"Job {job_id} deletado com sucesso"}
+
+@app.get("/metrics", summary="Métricas básicas", tags=["Infra"])
+async def metrics():
+    total_jobs = len(job_storage)
+    concluidos = sum(1 for j in job_storage.values() if j['status'] == 'completed')
+    falhados = sum(1 for j in job_storage.values() if j['status'] == 'failed')
+    rodando = sum(1 for j in job_storage.values() if j['status'] == 'running')
+    medias = None
+    try:
+        produtos = [j['total_produtos'] for j in job_storage.values() if j.get('total_produtos') is not None]
+        if produtos:
+            medias = {
+                'media_produtos_por_job': sum(produtos)/len(produtos),
+                'max_produtos': max(produtos),
+                'min_produtos': min(produtos)
+            }
+    except Exception:
+        pass
+    return {
+        'total_jobs': total_jobs,
+        'concluidos': concluidos,
+        'falhados': falhados,
+        'rodando': rodando,
+        'medias': medias
+    }
+
+@app.get("/job/{job_id}/html/{pagina}", summary="Download HTML debug", tags=["Debug"])
+async def job_html(job_id: str, pagina: int):
+    if job_id not in job_storage:
+        raise HTTPException(status_code=404, detail="Job não encontrado")
+    base_dir = "/tmp/scraping"
+    candidates = [
+        f"{base_dir}/job_{job_id}_pagina{pagina}.html",
+        f"{base_dir}/job_{job_id}_pagina_{pagina}_sem_itens.html",
+        f"{base_dir}/job_{job_id}_pagina_{pagina}_erro.html"
+    ]
+    for c in candidates:
+        if os.path.exists(c):
+            return FileResponse(c, media_type='text/html')
+    raise HTTPException(status_code=404, detail="Arquivo HTML não encontrado para esta página")
+
+@app.get("/metrics", summary="Métricas básicas", tags=["Infra"])
+async def metrics():
+    total_jobs = len(job_storage)
+    concluidos = sum(1 for j in job_storage.values() if j['status'] == 'completed')
+    falhados = sum(1 for j in job_storage.values() if j['status'] == 'failed')
+    rodando = sum(1 for j in job_storage.values() if j['status'] == 'running')
+    medias = None
+    try:
+        produtos = [j['total_produtos'] for j in job_storage.values() if j.get('total_produtos') is not None]
+        if produtos:
+            medias = {
+                'media_produtos_por_job': sum(produtos)/len(produtos),
+                'max_produtos': max(produtos),
+                'min_produtos': min(produtos)
+            }
+    except Exception:
+        pass
+    return {
+        'total_jobs': total_jobs,
+        'concluidos': concluidos,
+        'falhados': falhados,
+        'rodando': rodando,
+        'medias': medias
+    }
+
+@app.get("/job/{job_id}/html/{pagina}", summary="Download HTML debug", tags=["Debug"])
+async def job_html(job_id: str, pagina: int):
+    if job_id not in job_storage:
+        raise HTTPException(status_code=404, detail="Job não encontrado")
+    base_dir = "/tmp/scraping"
+    candidates = [
+        f"{base_dir}/job_{job_id}_pagina{pagina}.html",
+        f"{base_dir}/job_{job_id}_pagina_{pagina}_sem_itens.html",
+        f"{base_dir}/job_{job_id}_pagina_{pagina}_erro.html"
+    ]
+    for c in candidates:
+        if os.path.exists(c):
+            return FileResponse(c, media_type='text/html')
+    raise HTTPException(status_code=404, detail="Arquivo HTML não encontrado para esta página")
 
 if __name__ == "__main__":
     import uvicorn

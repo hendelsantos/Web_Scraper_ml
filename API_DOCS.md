@@ -7,17 +7,21 @@ Esta API permite fazer scraping de produtos em diferentes sites de e-commerce de
 ## 🌐 Endpoints Disponíveis
 
 ### 1. **GET /** - Informações da API
+
 ```
 GET http://localhost:8000/
 ```
 
 ### 2. **GET /sites** - Sites Disponíveis
+
 Lista todos os sites suportados para scraping.
+
 ```
 GET http://localhost:8000/sites
 ```
 
 **Resposta:**
+
 ```json
 {
   "sites_disponiveis": {
@@ -28,7 +32,9 @@ GET http://localhost:8000/sites
 ```
 
 ### 3. **POST /scraping** - Iniciar Scraping
+
 Inicia um job de scraping assíncrono.
+
 ```
 POST http://localhost:8000/scraping
 Content-Type: application/json
@@ -42,6 +48,7 @@ Content-Type: application/json
 ```
 
 **Resposta:**
+
 ```json
 {
   "job_id": "123e4567-e89b-12d3-a456-426614174000",
@@ -51,12 +58,15 @@ Content-Type: application/json
 ```
 
 ### 4. **GET /job/{job_id}** - Consultar Status
+
 Consulta o status e resultados de um job.
+
 ```
 GET http://localhost:8000/job/123e4567-e89b-12d3-a456-426614174000
 ```
 
 **Resposta:**
+
 ```json
 {
   "job_id": "123e4567-e89b-12d3-a456-426614174000",
@@ -78,13 +88,17 @@ GET http://localhost:8000/job/123e4567-e89b-12d3-a456-426614174000
 ```
 
 ### 5. **GET /jobs** - Listar Jobs
+
 Lista todos os jobs criados.
+
 ```
 GET http://localhost:8000/jobs
 ```
 
 ### 6. **DELETE /job/{job_id}** - Deletar Job
+
 Remove um job específico.
+
 ```
 DELETE http://localhost:8000/job/123e4567-e89b-12d3-a456-426614174000
 ```
@@ -92,26 +106,32 @@ DELETE http://localhost:8000/job/123e4567-e89b-12d3-a456-426614174000
 ## 🚀 Como Executar
 
 ### 1. Instalar Dependências
+
 ```bash
 pip install fastapi uvicorn pydantic requests beautifulsoup4
 ```
 
 ### 2. Executar API
+
 ```bash
 python api.py
 ```
+
 ou
+
 ```bash
 uvicorn api:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 ### 3. Acessar Documentação
+
 - **Swagger UI**: http://localhost:8000/docs
 - **ReDoc**: http://localhost:8000/redoc
 
 ## 💻 Exemplos de Uso
 
 ### Python
+
 ```python
 import requests
 import time
@@ -135,13 +155,13 @@ print(f"Job ID: {job_id}")
 while True:
     response = requests.get(f"http://localhost:8000/job/{job_id}")
     job_data = response.json()
-    
+
     print(f"Status: {job_data['status']}")
     print(f"Progresso: {job_data['progress']}")
-    
+
     if job_data['status'] in ['completed', 'failed']:
         break
-    
+
     time.sleep(5)
 
 # 4. Ver resultados
@@ -152,22 +172,23 @@ if job_data['status'] == 'completed':
 ```
 
 ### JavaScript/Fetch
+
 ```javascript
 // 1. Iniciar scraping
 const startScraping = async () => {
-  const response = await fetch('http://localhost:8000/scraping', {
-    method: 'POST',
+  const response = await fetch("http://localhost:8000/scraping", {
+    method: "POST",
     headers: {
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      site: 'mercado_livre',
-      termo_busca: 'smartphone',
+      site: "mercado_livre",
+      termo_busca: "smartphone",
       max_paginas: 3,
-      delay: 1.0
-    })
+      delay: 1.0,
+    }),
   });
-  
+
   const data = await response.json();
   return data.job_id;
 };
@@ -180,15 +201,15 @@ const checkStatus = async (jobId) => {
 };
 
 // Uso
-startScraping().then(jobId => {
-  console.log('Job iniciado:', jobId);
-  
+startScraping().then((jobId) => {
+  console.log("Job iniciado:", jobId);
+
   const checkInterval = setInterval(async () => {
     const status = await checkStatus(jobId);
-    console.log('Status:', status.status);
-    
-    if (status.status === 'completed') {
-      console.log('Produtos encontrados:', status.total_produtos);
+    console.log("Status:", status.status);
+
+    if (status.status === "completed") {
+      console.log("Produtos encontrados:", status.total_produtos);
       clearInterval(checkInterval);
     }
   }, 5000);
@@ -196,6 +217,7 @@ startScraping().then(jobId => {
 ```
 
 ### cURL
+
 ```bash
 # 1. Sites disponíveis
 curl -X GET "http://localhost:8000/sites"
@@ -223,16 +245,17 @@ curl -X GET "http://localhost:8000/job/SEU_JOB_ID_AQUI"
 
 ## 🔧 Parâmetros de Configuração
 
-| Parâmetro | Tipo | Obrigatório | Padrão | Descrição |
-|-----------|------|-------------|---------|-----------|
-| site | string | ✅ | - | ID do site ("mercado_livre" ou "amazon") |
-| termo_busca | string | ✅ | - | Produto a ser buscado |
-| max_paginas | integer | ❌ | 10 | Máximo de páginas a processar |
-| delay | float | ❌ | 1.0 | Delay entre requisições (segundos) |
+| Parâmetro   | Tipo    | Obrigatório | Padrão | Descrição                                |
+| ----------- | ------- | ----------- | ------ | ---------------------------------------- |
+| site        | string  | ✅          | -      | ID do site ("mercado_livre" ou "amazon") |
+| termo_busca | string  | ✅          | -      | Produto a ser buscado                    |
+| max_paginas | integer | ❌          | 10     | Máximo de páginas a processar            |
+| delay       | float   | ❌          | 1.0    | Delay entre requisições (segundos)       |
 
 ## 🌐 Deploy em Produção
 
 ### Docker
+
 ```dockerfile
 FROM python:3.9-slim
 
@@ -247,6 +270,7 @@ CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
 ### Heroku
+
 ```bash
 # Criar Procfile
 echo "web: uvicorn api:app --host 0.0.0.0 --port \$PORT" > Procfile

@@ -7,23 +7,27 @@
 ## ✨ Características Principais
 
 ### 🌐 **Multi-Sites**
+
 - ✅ **Mercado Livre** (totalmente funcional)
 - 🔧 **Amazon** (estrutura preparada)
 - 🚀 **Fácil adição** de novos sites
 
 ### 🎮 **Interface Interativa**
+
 - 📋 Menu de seleção de sites
 - 🔍 Input dinâmico do termo de busca
 - ✅ Confirmação de configurações
 - 📊 Feedback visual em tempo real
 
 ### 📡 **API REST** (NOVO!)
+
 - ⚡ Jobs assíncronos em background
 - 🌐 Endpoints RESTful completos
 - 📊 Monitoramento em tempo real
 - 🔧 Documentação automática (Swagger/ReDoc)
 
 ### 🛠️ **Funcionalidades Avançadas**
+
 - 🎯 Configuração dinâmica de seletores CSS
 - 📁 Nomenclatura automática de arquivos
 - 🛡️ Tratamento robusto de erros
@@ -33,16 +37,19 @@
 ## 🚀 Como Usar
 
 ### 1. **Instalação das Dependências**
+
 ```bash
 pip install requests beautifulsoup4 pandas openpyxl
 ```
 
 ### 2. **Execução**
+
 ```bash
 python Sraper_ml.py
 ```
 
 ### 3. **Uso Interativo**
+
 ```
 🎯 WEB SCRAPER UNIVERSAL
 ==================================================
@@ -65,6 +72,7 @@ python Sraper_ml.py
 ## 📡 API REST (NOVIDADE!)
 
 ### 🚀 **Executar API**
+
 ```bash
 # Instalar dependências da API
 pip install fastapi uvicorn pydantic
@@ -77,6 +85,7 @@ python api.py
 ```
 
 ### 📋 **Endpoints Disponíveis**
+
 - `GET /` - Informações da API
 - `GET /sites` - Sites disponíveis
 - `POST /scraping` - Iniciar job de scraping
@@ -85,6 +94,7 @@ python api.py
 - `DELETE /job/{id}` - Deletar job
 
 ### 💻 **Exemplo de Uso da API**
+
 ```python
 import requests
 
@@ -106,6 +116,7 @@ print(f"Produtos: {job_data['total_produtos']}")
 ```
 
 ### 🌐 **Via cURL**
+
 ```bash
 # Iniciar scraping
 curl -X POST http://localhost:8000/scraping \
@@ -121,6 +132,7 @@ curl http://localhost:8000/job/SEU_JOB_ID
 ```
 
 ### ⚡ **Vantagens da API**
+
 - 🔄 **Processamento assíncrono** em background
 - 🌐 **Acesso via HTTP** de qualquer aplicação
 - 📱 **Integrável** com web, mobile, desktop
@@ -128,14 +140,17 @@ curl http://localhost:8000/job/SEU_JOB_ID
 - 🚀 **Jobs simultâneos** para diferentes buscas
 
 ### 🔧 **Cliente Python Interativo**
+
 ```bash
 python client.py
 ```
+
 O cliente oferece interface para usar a API de forma interativa.
 
 ## 📊 Dados Coletados
 
 Para cada produto encontrado, o scraper coleta:
+
 - 📝 **Nome** do produto
 - 💰 **Preço**
 - 🔗 **Link** do produto
@@ -153,6 +168,7 @@ Para cada produto encontrado, o scraper coleta:
 ## 🔧 Arquitetura Técnica
 
 ### Sites Suportados
+
 ```python
 SITES_SUPORTADOS = {
     "1": {
@@ -170,6 +186,7 @@ SITES_SUPORTADOS = {
 ```
 
 ### Configuração Dinâmica
+
 - ✅ Seletores CSS configuráveis por site
 - ✅ URLs de paginação customizáveis
 - ✅ Tratamento de links relativos/absolutos
