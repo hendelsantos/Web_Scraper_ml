@@ -5,6 +5,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import List, Optional, Dict
 import requests
+from requests import Session
 from bs4 import BeautifulSoup
 import time
 import urllib.parse
@@ -165,6 +166,27 @@ def _parse_preco(texto: Optional[str]) -> Optional[float]:
     except Exception:
         return None
 
+def _inicializar_sessao(site_config: dict) -> Session:
+    s = Session()
+    # Primeiro hit para obter cookies base (importante para ML)
+    try:
+        if site_config['nome'] == 'Mercado Livre':
+            s.get("https://www.mercadolivre.com.br", headers=build_headers(), timeout=10)
+    except Exception:
+        pass
+    return s
+
+def _detectar_captcha(html: str) -> bool:
+    padroes = [
+        'captcha',
+        'não é um robô',
+        'verifique que você',
+        'access denied',
+        'temporariamente bloqueado'
+    ]
+    lower = html.lower()
+    return any(p in lower for p in padroes)
+
 def realizar_scraping(job_id: str, site_config: dict, url_base: str, termo_busca: str, max_paginas: int, delay: float):
     """Função para realizar o scraping em background"""
     try:
@@ -175,6 +197,15 @@ def realizar_scraping(job_id: str, site_config: dict, url_base: str, termo_busca
         produtos = []
         pagina = 1
         
+        sessao = _inicializar_sessao(site_config)
+        job_storage[job_id]['debug'] = {
+            'tentativas': 0,
+            'seletor_principal_hits': 0,
+            'fallback_usado': None,
+            'possivel_captcha': False,
+            'primeira_pagina_salva': False
+        }
+
         while pagina <= max_paginas:
             # Construir URL da página
             if site_config['nome'] == "Mercado Livre":
@@ -196,7 +227,8 @@ def realizar_scraping(job_id: str, site_config: dict, url_base: str, termo_busca
                 backoff_base = float(os.environ.get("SCRAPER_BACKOFF_BASE", "1.5"))
                 while True:
                     headers = build_headers()
-                    resp = requests.get(url, headers=headers, timeout=15)
+                    resp = sessao.get(url, headers=headers, timeout=15)
+                    job_storage[job_id]['debug']['tentativas'] += 1
                     status = resp.status_code
                     if status == 200:
                         break
@@ -219,8 +251,22 @@ def realizar_scraping(job_id: str, site_config: dict, url_base: str, termo_busca
                 if resp.status_code != 200:
                     break
 
-                soup = BeautifulSoup(resp.text, "html.parser")
+                html_text = resp.text
+                if pagina == 1 and not job_storage[job_id]['debug']['primeira_pagina_salva'] and os.environ.get('SCRAPER_SAVE_FIRST','1') == '1':
+                    try:
+                        with open(f"/tmp/scraping/job_{job_id}_pagina1.html", 'w', encoding='utf-8') as f:
+                            f.write(html_text[:300000])
+                        job_storage[job_id]['debug']['primeira_pagina_salva'] = True
+                    except Exception:
+                        pass
+
+                if _detectar_captcha(html_text):
+                    job_storage[job_id]['debug']['possivel_captcha'] = True
+                    job_storage[job_id]['progress'] = 'Possível captcha/bloqueio detectado.'
+
+                soup = BeautifulSoup(html_text, "html.parser")
                 itens = soup.select(site_config['seletores']['item'])
+                job_storage[job_id]['debug']['seletor_principal_hits'] = len(itens)
 
                 # Fallback alternativo para Mercado Livre (variações de layout)
                 if site_config['nome'] == 'Mercado Livre' and not itens:
@@ -234,6 +280,7 @@ def realizar_scraping(job_id: str, site_config: dict, url_base: str, termo_busca
                         itens = soup.select(sel)
                         if itens:
                             job_storage[job_id]["progress"] = f"Fallback de seletor aplicado: {sel}"
+                            job_storage[job_id]['debug']['fallback_usado'] = sel
                             break
 
                 if not itens:
@@ -241,7 +288,7 @@ def realizar_scraping(job_id: str, site_config: dict, url_base: str, termo_busca
                     try:
                         debug_path = f"/tmp/scraping/job_{job_id}_pagina_{pagina}_sem_itens.html"
                         with open(debug_path, 'w', encoding='utf-8') as f:
-                            f.write(resp.text[:200000])
+                            f.write(html_text[:200000])
                         job_storage[job_id]["progress"] = "Nenhum item encontrado - layout pode ter mudado (HTML salvo)."
                     except Exception:
                         pass
@@ -513,6 +560,19 @@ async def job_json(job_id: str):
         "job_id": job_id,
         "total": job_data["total_produtos"],
         "produtos": [p.dict() for p in job_data["produtos"]]
+    }
+
+@app.get("/job/{job_id}/debug", summary="Debug do job", tags=["Debug"])
+async def job_debug(job_id: str):
+    if job_id not in job_storage:
+        raise HTTPException(status_code=404, detail="Job não encontrado")
+    data = job_storage[job_id]
+    return {
+        'job_id': job_id,
+        'status': data['status'],
+        'progress': data['progress'],
+        'debug': data.get('debug', {}),
+        'config': data.get('config')
     }
 
 @app.get("/debug/teste_pagina", summary="Teste bruto de captura", tags=["Debug"])
