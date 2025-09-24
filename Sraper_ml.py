@@ -265,4 +265,4 @@ if __name__ == "__main__":
         print(f"\n❌ [ERRO INESPERADO] {str(e)}")
         print("💡 Por favor, reporte este erro para melhorias futuras.")
     
-    print("\n👋 Obrigado por usar o Web Scraper Universal!")
+    print("\n👋 Obrigado por usar o Web Scraper HendelCode!")

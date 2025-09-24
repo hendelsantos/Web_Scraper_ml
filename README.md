@@ -2,6 +2,8 @@
 
 🎯 **Web Scraper Universal** - Uma ferramenta poderosa e interativa para fazer scraping de produtos em diferentes sites de e-commerce.
 
+**🚀 NOVO: Agora disponível como API REST!**
+
 ## ✨ Características Principais
 
 ### 🌐 **Multi-Sites**
@@ -14,6 +16,12 @@
 - 🔍 Input dinâmico do termo de busca
 - ✅ Confirmação de configurações
 - 📊 Feedback visual em tempo real
+
+### 📡 **API REST** (NOVO!)
+- ⚡ Jobs assíncronos em background
+- 🌐 Endpoints RESTful completos
+- 📊 Monitoramento em tempo real
+- 🔧 Documentação automática (Swagger/ReDoc)
 
 ### 🛠️ **Funcionalidades Avançadas**
 - 🎯 Configuração dinâmica de seletores CSS
@@ -53,6 +61,77 @@ python Sraper_ml.py
 🎉 1.250 produtos exportados!
 📁 Arquivo: produtos_iphone_15.xlsx
 ```
+
+## 📡 API REST (NOVIDADE!)
+
+### 🚀 **Executar API**
+```bash
+# Instalar dependências da API
+pip install fastapi uvicorn pydantic
+
+# Iniciar servidor
+python api.py
+
+# Acessar documentação
+# http://localhost:8000/docs
+```
+
+### 📋 **Endpoints Disponíveis**
+- `GET /` - Informações da API
+- `GET /sites` - Sites disponíveis
+- `POST /scraping` - Iniciar job de scraping
+- `GET /job/{id}` - Consultar status do job
+- `GET /jobs` - Listar todos os jobs
+- `DELETE /job/{id}` - Deletar job
+
+### 💻 **Exemplo de Uso da API**
+```python
+import requests
+
+# 1. Iniciar scraping
+response = requests.post('http://localhost:8000/scraping', json={
+    'site': 'mercado_livre',
+    'termo_busca': 'notebook gamer',
+    'max_paginas': 3,
+    'delay': 1.0
+})
+job_id = response.json()['job_id']
+
+# 2. Consultar resultado
+result = requests.get(f'http://localhost:8000/job/{job_id}')
+job_data = result.json()
+
+print(f"Status: {job_data['status']}")
+print(f"Produtos: {job_data['total_produtos']}")
+```
+
+### 🌐 **Via cURL**
+```bash
+# Iniciar scraping
+curl -X POST http://localhost:8000/scraping \
+  -H "Content-Type: application/json" \
+  -d '{
+    "site": "mercado_livre",
+    "termo_busca": "smartphone",
+    "max_paginas": 2
+  }'
+
+# Consultar resultado
+curl http://localhost:8000/job/SEU_JOB_ID
+```
+
+### ⚡ **Vantagens da API**
+- 🔄 **Processamento assíncrono** em background
+- 🌐 **Acesso via HTTP** de qualquer aplicação
+- 📱 **Integrável** com web, mobile, desktop
+- 📊 **Monitoramento** de progresso em tempo real
+- 🚀 **Jobs simultâneos** para diferentes buscas
+
+### 🔧 **Cliente Python Interativo**
+```bash
+python client.py
+```
+O cliente oferece interface para usar a API de forma interativa.
 
 ## 📊 Dados Coletados
 
