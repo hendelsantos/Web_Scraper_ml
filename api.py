@@ -13,6 +13,8 @@ import json
 from datetime import datetime
 import os
 import pandas as pd
+import random
+import math
 
 # ==========================
 # CONFIGURAÇÃO DA API
@@ -43,9 +45,27 @@ if os.path.exists(static_dir):
 # CONFIGURAÇÕES GLOBAIS
 # ==========================
 DELAY = 1
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36"
+BASE_HEADERS = {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
 }
+
+USER_AGENTS = [
+    # Lista reduzida (pode expandir depois)
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Safari/605.1.15",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0",
+]
+
+def build_headers():
+    ua = random.choice(USER_AGENTS)
+    h = BASE_HEADERS.copy()
+    h["User-Agent"] = ua
+    h["Referer"] = "https://www.google.com"
+    return h
 
 # Dicionário de sites suportados
 SITES_SUPORTADOS = {
@@ -92,6 +112,7 @@ class ScrapingRequest(BaseModel):
 class Produto(BaseModel):
     nome: Optional[str]
     preco: Optional[str]
+    preco_num: Optional[float]
     link: Optional[str]
     site: str
 
@@ -126,6 +147,23 @@ def construir_url_busca(site_config, termo):
         return f"{site_config['base_url']}{termo_codificado}"
     return None
 
+def _parse_preco(texto: Optional[str]) -> Optional[float]:
+    if not texto:
+        return None
+    try:
+        # Remove caracteres não numéricos exceto separadores
+        t = texto.strip()
+        # Mercado Livre normalmente: '1.234' (sem centavos) ou '1.234,56'
+        t = t.replace('\u00a0', ' ').replace('R$','').strip()
+        t = t.replace('.', '').replace(',', '.')
+        # Filtrar múltiplos espaços
+        t = ''.join(ch for ch in t if ch.isdigit() or ch == '.')
+        if not t:
+            return None
+        return float(t)
+    except Exception:
+        return None
+
 def realizar_scraping(job_id: str, site_config: dict, url_base: str, termo_busca: str, max_paginas: int, delay: float):
     """Função para realizar o scraping em background"""
     try:
@@ -152,7 +190,31 @@ def realizar_scraping(job_id: str, site_config: dict, url_base: str, termo_busca
             job_storage[job_id]["progress"] = f"Processando página {pagina}..."
             
             try:
-                resp = requests.get(url, headers=HEADERS, timeout=10)
+                attempt = 0
+                max_retries = int(os.environ.get("SCRAPER_MAX_RETRIES", "3"))
+                backoff_base = float(os.environ.get("SCRAPER_BACKOFF_BASE", "1.5"))
+                while True:
+                    headers = build_headers()
+                    resp = requests.get(url, headers=headers, timeout=15)
+                    status = resp.status_code
+                    if status == 200:
+                        break
+                    if status in (429, 503, 500) and attempt < max_retries:
+                        sleep_for = (backoff_base ** attempt) + random.uniform(0, 0.5)
+                        job_storage[job_id]["progress"] = f"Status {status} - retry {attempt+1}/{max_retries} em {sleep_for:.1f}s"
+                        time.sleep(sleep_for)
+                        attempt += 1
+                        continue
+                    # Falhou definitivo
+                    job_storage[job_id]["progress"] = f"Falha HTTP {status} - encerrando"
+                    # Salvar HTML para debug
+                    try:
+                        debug_path = f"/tmp/scraping/job_{job_id}_pagina_{pagina}_erro.html"
+                        with open(debug_path, 'w', encoding='utf-8') as f:
+                            f.write(resp.text[:200000])
+                    except Exception:
+                        pass
+                    break
                 if resp.status_code != 200:
                     break
 
@@ -180,10 +242,11 @@ def realizar_scraping(job_id: str, site_config: dict, url_base: str, termo_busca
                                 elif site_config['nome'] == "Amazon":
                                     link = f"https://www.amazon.com.br{link}"
 
-                    if nome:  # Só adiciona se tiver nome
+                    if nome:
                         produtos.append(Produto(
                             nome=nome,
                             preco=preco,
+                            preco_num=_parse_preco(preco),
                             link=link,
                             site=site_config['nome']
                         ))
@@ -356,20 +419,20 @@ async def download_job_results(job_id: str):
     
     try:
         # Criar DataFrame
-        df = pd.DataFrame(job_data["produtos"])
+        df = pd.DataFrame([p.dict() for p in job_data["produtos"]])
         
         # Salvar em buffer
         from io import BytesIO
         buffer = BytesIO()
-        
+
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
             df.to_excel(writer, index=False, sheet_name='Produtos')
-        
+
         buffer.seek(0)
-        
+
         # Retornar arquivo
         from fastapi.responses import StreamingResponse
-        
+
         return StreamingResponse(
             BytesIO(buffer.read()),
             media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -400,10 +463,33 @@ async def listar_jobs():
 @app.get("/healthz", summary="Healthcheck", tags=["Infra"])
 async def healthcheck():
     """Endpoint rápido para verificação de saúde (usado por plataformas de deploy)."""
+    uptime = None
+    try:
+        # created_at do primeiro job como referência de uptime se existir
+        if job_storage:
+            first = min([j["created_at"] for j in job_storage.values()])
+            uptime = first
+    except Exception:
+        uptime = None
     return {
         "status": "ok",
+        "version": "2.0.0",
         "time": datetime.utcnow().isoformat() + "Z",
-        "jobs": len(job_storage)
+        "jobs": len(job_storage),
+        "uptime_ref": uptime
+    }
+
+@app.get("/job/{job_id}/json", summary="Resultados em JSON bruto")
+async def job_json(job_id: str):
+    if job_id not in job_storage:
+        raise HTTPException(status_code=404, detail="Job não encontrado")
+    job_data = job_storage[job_id]
+    if job_data["status"] != "completed":
+        raise HTTPException(status_code=400, detail="Job ainda não concluído")
+    return {
+        "job_id": job_id,
+        "total": job_data["total_produtos"],
+        "produtos": [p.dict() for p in job_data["produtos"]]
     }
 
 @app.delete("/job/{job_id}", summary="Deletar job")
