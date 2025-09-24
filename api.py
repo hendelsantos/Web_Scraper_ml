@@ -118,20 +118,31 @@ def build_headers():
 # ==========================
 # PROXIES (opcional)
 # Variável de ambiente: SCRAPER_PROXIES="host1:port,host2:port,http://user:pass@host3:3128"
+# Se não configurado, usa lista padrão de proxies públicos
 # ==========================
 def _carregar_proxies():
     raw = os.environ.get("SCRAPER_PROXIES", "").strip()
-    if not raw:
-        return []
-    proxies = []
-    for part in raw.split(','):
-        p = part.strip()
-        if not p:
-            continue
-        if '://' not in p:
-            p = f"http://{p}"
-        proxies.append(p)
-    return proxies
+    if raw:
+        # Proxies customizados via env
+        proxies = []
+        for part in raw.split(','):
+            p = part.strip()
+            if not p:
+                continue
+            if '://' not in p:
+                p = f"http://{p}"
+            proxies.append(p)
+        return proxies
+    else:
+        # Lista padrão de proxies públicos (podem não funcionar sempre)
+        # Estes são proxies brasileiros/americanos que podem ajudar com bloqueios regionais
+        return [
+            "http://45.70.0.2:999",
+            "http://190.103.177.131:80",
+            "http://200.105.215.22:33630",
+            "http://181.78.22.207:999",
+            "http://186.125.218.202:999",
+        ]
 
 PROXIES_LIST = _carregar_proxies()
 PROXIES_CYCLE = cycle(PROXIES_LIST) if PROXIES_LIST else None
@@ -314,10 +325,39 @@ def _detectar_captcha(html: str) -> bool:
         'não é um robô',
         'verifique que você',
         'access denied',
-        'temporariamente bloqueado'
+        'temporariamente bloqueado',
+        'blocked',
+        '403 forbidden',
+        'cloudflare',
+        'ddos protection',
+        'security check',
+        'please wait',
+        'rate limit',
+        'too many requests'
     ]
     lower = html.lower()
     return any(p in lower for p in padroes)
+
+def _detectar_bloqueio(html: str, status_code: int, content_length: int) -> bool:
+    """Detecta se a página está bloqueada ou retornando conteúdo suspeito"""
+    # Status codes de bloqueio
+    if status_code in [403, 429, 503]:
+        return True
+
+    # Páginas muito pequenas (menos de 50KB) provavelmente são de erro/bloqueio
+    if content_length < 50000:
+        return True
+
+    # Verificar padrões de bloqueio
+    if _detectar_captcha(html):
+        return True
+
+    # Verificar se não contém elementos esperados
+    lower = html.lower()
+    if 'mercado livre' in lower and 'notebook' not in lower and len(html) < 200000:
+        return True
+
+    return False
 
 def realizar_scraping(job_id: str, site_config: dict, url_base: str, termo_busca: str, max_paginas: int, delay: float):
     """Função para realizar o scraping em background"""
@@ -405,6 +445,28 @@ def realizar_scraping(job_id: str, site_config: dict, url_base: str, termo_busca
                     break
 
                 html_text = resp.text
+
+                # Verificar se a página está bloqueada
+                if _detectar_bloqueio(html_text, resp.status_code, len(html_text)):
+                    job_storage[job_id]["progress"] = f"Página bloqueada detectada (tamanho: {len(html_text)} bytes) - tentando próximo proxy"
+                    job_storage[job_id]['debug']['possivel_captcha'] = True
+
+                    # Salvar HTML bloqueado para debug
+                    try:
+                        debug_path = f"/tmp/scraping/job_{job_id}_pagina_{pagina}_bloqueada.html"
+                        with open(debug_path, 'w', encoding='utf-8') as f:
+                            f.write(html_text[:100000])
+                    except Exception:
+                        pass
+
+                    # Tentar próximo proxy se disponível
+                    if PROXIES_LIST and job_storage[job_id]['debug']['erros_proxy'] < len(PROXIES_LIST):
+                        job_storage[job_id]['debug']['erros_proxy'] += 1
+                        continue  # Tenta novamente com próximo proxy
+                    else:
+                        job_storage[job_id]["progress"] = "Bloqueio detectado e sem proxies disponíveis - encerrando"
+                        break
+
                 if pagina == 1 and not job_storage[job_id]['debug']['primeira_pagina_salva'] and os.environ.get('SCRAPER_SAVE_FIRST','1') == '1':
                     try:
                         with open(f"/tmp/scraping/job_{job_id}_pagina1.html", 'w', encoding='utf-8') as f:
