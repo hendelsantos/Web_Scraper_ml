@@ -35,6 +35,9 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
 # Copiar código da aplicação
 COPY . .
 
+# Dar permissão de execução ao script de inicialização
+RUN chmod +x start.sh
+
 # Criar diretórios necessários
 RUN mkdir -p /tmp/scraping && \
     mkdir -p /app/static && \
@@ -48,9 +51,5 @@ USER scraper
 ENV PORT=8000
 EXPOSE ${PORT}
 
-# Healthcheck para Railway
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:${PORT}/healthz || exit 1
-
 # Comando de inicialização otimizado
-CMD ["sh", "-c", "uvicorn api:app --host 0.0.0.0 --port ${PORT} --workers 1 --loop uvloop --http httptools --log-level info"]
+CMD ["./start.sh"]
