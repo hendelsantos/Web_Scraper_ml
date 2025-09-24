@@ -3,9 +3,16 @@ builder = "dockerfile"
 
 [deploy]
 healthcheckPath = "/healthz"
-healthcheckTimeout = 120
+healthcheckTimeout = 300
 restartPolicyType = "always"
+startCommand = "uvicorn api:app --host 0.0.0.0 --port $PORT --workers 1 --loop uvloop --http httptools --log-level info"
+
+# Configurações específicas para Railway
+[build.args]
+BUILDKIT_INLINE_CACHE = "1"
 
 # Notas:
-# - healthcheckPath agora usa /healthz (leve e rápido)
-# - Porta exposta configurada no Dockerfile (8000) e sobrescrita via env PORT
+# - builder = "dockerfile" força o uso do Dockerfile
+# - healthcheckPath usa /healthz (endpoint leve)
+# - startCommand garante o comando correto de inicialização
+# - restartPolicyType = "always" para reinicialização automática

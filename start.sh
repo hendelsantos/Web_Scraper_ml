@@ -1,24 +1,29 @@
 #!/bin/bash
+# Script de inicialização para Railway/Docker
 
-# Script de inicialização para Railway
-echo "🚀 Iniciando Web Scraper Universal API..."
+set -e
 
-# Verificar se todas as dependências estão instaladas
-echo "📦 Verificando dependências..."
-python -c "import fastapi, uvicorn, requests, bs4, pandas, openpyxl" || {
-    echo "❌ Erro: Dependências não encontradas"
-    echo "💡 Instalando dependências..."
-    pip install -r requirements.txt
-}
+echo "🚀 Iniciando Web Scraper Universal API v2.0.0"
 
-# Definir variáveis de ambiente padrão se não existirem
-export HOST=${HOST:-"0.0.0.0"}
-export PORT=${PORT:-8000}
+# Configurar porta (Railway injeta PORT)
+PORT={PORT:-8000}
+HOST={HOST:-0.0.0.0}
 
-echo "🌐 Servidor será executado em $HOST:$PORT"
-echo "📡 Interface disponível em: http://$HOST:$PORT"
-echo "📚 Documentação da API: http://$HOST:$PORT/docs"
+echo "📡 Configurações:"
+echo "   - Host: HOST"
+echo "   - Porta: PORT"
+echo "   - Ambiente: {RAILWAY_ENVIRONMENT:-local}"
 
-# Executar a aplicação usando uvicorn diretamente
-echo "🎯 Iniciando aplicação com uvicorn..."
-exec uvicorn api:app --host $HOST --port $PORT --log-level info
+# Aguardar um pouco para garantir que tudo está pronto
+sleep 2
+
+# Executar uvicorn com configurações otimizadas
+exec uvicorn api:app 
+    --host "HOST" 
+    --port "PORT" 
+    --workers 1 
+    --loop uvloop 
+    --http httptools 
+    --log-level info 
+    --access-log 
+    --no-server-header

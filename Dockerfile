@@ -1,33 +1,56 @@
-## Base image
+# ================================
+# Web Scraper Universal - Dockerfile
+# ================================
 FROM python:3.11-slim
 
-# Set working directory
-WORKDIR /app
+# Definir metadados
+LABEL maintainer="Web Scraper API"
+LABEL version="2.0.0"
+LABEL description="API FastAPI para scraping de produtos em e-commerce"
 
-## System deps (apenas o essencial)
+# Evitar prompts interativos durante instalação
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+# Criar usuário não-root para segurança
+RUN groupadd -r scraper && useradd -r -g scraper scraper
+
+# Instalar dependências do sistema (apenas essenciais)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /tmp/*
 
-# Copy requirements and install Python dependencies
+# Definir diretório de trabalho
+WORKDIR /app
+
+# Copiar e instalar dependências Python primeiro (para cache de layers)
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# Copiar código da aplicação
 COPY . .
 
-# Create temp directory
-RUN mkdir -p /tmp/scraping
+# Criar diretórios necessários
+RUN mkdir -p /tmp/scraping && \
+    mkdir -p /app/static && \
+    chown -R scraper:scraper /app && \
+    chown -R scraper:scraper /tmp/scraping
 
-## Definir porta padrão (Railway injeta PORT em runtime)
+# Definir usuário não-root
+USER scraper
+
+# Configurar porta (Railway sobrescreve via env PORT)
 ENV PORT=8000
+EXPOSE ${PORT}
 
-EXPOSE 8000
+# Healthcheck para Railway
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:${PORT}/healthz || exit 1
 
-## Healthcheck simples (opcional para ambientes que suportam)
-HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD curl -fsS http://localhost:${PORT}/healthz || exit 1
-
-## Executar aplicação
-CMD ["sh", "-c", "uvicorn api:app --host 0.0.0.0 --port ${PORT} --log-level info"]
+# Comando de inicialização otimizado
+CMD ["sh", "-c", "uvicorn api:app --host 0.0.0.0 --port ${PORT} --workers 1 --loop uvloop --http httptools --log-level info"]
