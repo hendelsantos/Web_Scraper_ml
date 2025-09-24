@@ -1,0 +1,45 @@
+# Ambientes virtuais
+.venv/
+venv/
+env/
+
+# Arquivos Python temporários
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Arquivos do sistema
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# Logs e dados temporários
+*.log
+api.log
+*.xlsx
+produtos_*.xlsx
+
+# Arquivos de desenvolvimento
+README.md
+MELHORIAS.md
+client.py
+API_DOCS.md
+
+# Documentação local
+docs/
