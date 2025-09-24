@@ -49,27 +49,70 @@ if os.path.exists(static_dir):
 # ==========================
 # CONFIGURAÇÕES GLOBAIS
 # ==========================
-DELAY = 1
+DELAY = 2  # Aumentado para 2 segundos entre requests
 BASE_HEADERS = {
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
     "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Accept-Encoding": "gzip, deflate, br",
     "Cache-Control": "no-cache",
     "Pragma": "no-cache",
+    "Sec-Ch-Ua": "\"Not_A Brand\";v=\"8\", \"Chromium\";v=\"120\", \"Google Chrome\";v=\"120\"",
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": "\"Windows\"",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
 }
 
 USER_AGENTS = [
-    # Lista reduzida (pode expandir depois)
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Safari/605.1.15",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0",
+    # Chrome mais recentes
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+    # Firefox
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:120.0) Gecko/20100101 Firefox/120.0",
+    # Safari
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
+    # Edge
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
 ]
 
 def build_headers():
     ua = random.choice(USER_AGENTS)
     h = BASE_HEADERS.copy()
     h["User-Agent"] = ua
-    h["Referer"] = "https://www.google.com"
+
+    # Headers específicos por tipo de navegador
+    if "Chrome" in ua:
+        h["Sec-Ch-Ua"] = "\"Not_A Brand\";v=\"8\", \"Chromium\";v=\"120\", \"Google Chrome\";v=\"120\""
+        h["Sec-Ch-Ua-Mobile"] = "?0"
+        h["Sec-Ch-Ua-Platform"] = "\"Windows\"" if "Windows" in ua else "\"macOS\""
+    elif "Firefox" in ua:
+        h.pop("Sec-Ch-Ua", None)
+        h.pop("Sec-Ch-Ua-Mobile", None)
+        h.pop("Sec-Ch-Ua-Platform", None)
+    elif "Safari" in ua and "Chrome" not in ua:
+        h.pop("Sec-Ch-Ua", None)
+        h.pop("Sec-Ch-Ua-Mobile", None)
+        h.pop("Sec-Ch-Ua-Platform", None)
+
+    # Varia o referer
+    referers = [
+        "https://www.google.com/",
+        "https://www.bing.com/",
+        "https://br.search.yahoo.com/",
+        None
+    ]
+    referer = random.choice(referers)
+    if referer:
+        h["Referer"] = referer
+
     return h
 
 # ==========================
@@ -250,10 +293,19 @@ def _inicializar_sessao(site_config: dict) -> Session:
     s = Session()
     # Primeiro hit para obter cookies base (importante para ML)
     try:
+        headers = build_headers()
         if site_config['nome'] == 'Mercado Livre':
-            s.get("https://www.mercadolivre.com.br", headers=build_headers(), timeout=10)
-    except Exception:
-        pass
+            # Primeiro acesso à página principal
+            s.get("https://www.mercadolivre.com.br", headers=headers, timeout=15)
+            time.sleep(0.5)  # Pequeno delay para parecer mais natural
+        elif site_config['nome'] == 'Amazon':
+            s.get("https://www.amazon.com.br", headers=headers, timeout=15)
+            time.sleep(0.5)
+        elif site_config['nome'] == 'eBay':
+            s.get("https://www.ebay.com.br", headers=headers, timeout=15)
+            time.sleep(0.5)
+    except Exception as e:
+        print(f"Aviso: Não foi possível inicializar sessão para {site_config['nome']}: {e}")
     return s
 
 def _detectar_captcha(html: str) -> bool:
