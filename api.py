@@ -26,6 +26,7 @@ import re
 import asyncio
 import socket
 import struct
+from proxy_rotator import get_proxy_session, proxy_rotator
 
 # ==========================
 # CONFIGURAÇÃO DA API
@@ -390,7 +391,15 @@ def _parse_preco(texto: Optional[str]) -> Optional[float]:
 
 def _inicializar_sessao(site_config: dict) -> Session:
     """Inicializa sessão stealth com comportamento humano simulado"""
-    s = create_stealth_session()
+    # Usar sessão com proxy rotativo para Railway
+    is_railway = os.environ.get('RAILWAY_ENVIRONMENT') is not None
+    
+    if is_railway:
+        print("🚂 Detectado ambiente Railway - usando proxies rotativos")
+        s = get_proxy_session()
+    else:
+        print("🏠 Ambiente local - usando conexão direta")
+        s = create_stealth_session()
     
     # Simular comportamento humano na inicialização
     try:
@@ -425,6 +434,11 @@ def _inicializar_sessao(site_config: dict) -> Session:
         
     except Exception as e:
         print(f"Aviso: Não foi possível inicializar sessão stealth para {site_config['nome']}: {e}")
+        # Se proxy falhou, tentar outro
+        if is_railway and hasattr(s, 'proxies') and s.proxies:
+            proxy_info = s.proxies.get('http', 'unknown')
+            proxy_rotator.mark_proxy_failed({'ip': 'unknown', 'port': 0})
+            print(f"🔄 Tentando próximo proxy...")
     return s
 
 def _detectar_captcha(html: str) -> bool:
