@@ -6,3 +6,5 @@ beautifulsoup4==4.12.2
 pandas==2.2.2
 openpyxl==3.1.2
 playwright==1.47.0  # opcional para fallback dinâmico (rodar depois: playwright install)
+fake-useragent==1.5.1
+requests-html==0.10.0

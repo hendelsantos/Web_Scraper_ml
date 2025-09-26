@@ -20,6 +20,12 @@ import hashlib
 from itertools import cycle
 import threading
 import atexit
+import base64
+from urllib.parse import urljoin, urlparse
+import re
+import asyncio
+import socket
+import struct
 
 # ==========================
 # CONFIGURAÇÃO DA API
@@ -47,73 +53,155 @@ if os.path.exists(static_dir):
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 # ==========================
-# CONFIGURAÇÕES GLOBAIS
+# CONFIGURAÇÕES GLOBAIS ANTI-DETECÇÃO
 # ==========================
 DELAY = 2  # Aumentado para 2 segundos entre requests
-BASE_HEADERS = {
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-    "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Cache-Control": "no-cache",
-    "Pragma": "no-cache",
-    "Sec-Ch-Ua": "\"Not_A Brand\";v=\"8\", \"Chromium\";v=\"120\", \"Google Chrome\";v=\"120\"",
-    "Sec-Ch-Ua-Mobile": "?0",
-    "Sec-Ch-Ua-Platform": "\"Windows\"",
-    "Sec-Fetch-Dest": "document",
-    "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-Site": "none",
-    "Sec-Fetch-User": "?1",
-    "Upgrade-Insecure-Requests": "1",
-}
 
-USER_AGENTS = [
-    # Chrome mais recentes
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-    # Firefox
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:120.0) Gecko/20100101 Firefox/120.0",
-    # Safari
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
-    # Edge
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
+# Headers mais realistas e variados
+REALISTIC_BROWSERS = [
+    {
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "sec_ch_ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+        "sec_ch_ua_platform": '"Windows"',
+        "viewport": "1366x768"
+    },
+    {
+        "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+        "sec_ch_ua": '"Not_A Brand";v="8", "Chromium";v="119", "Google Chrome";v="119"',
+        "sec_ch_ua_platform": '"macOS"',
+        "viewport": "1440x900"
+    },
+    {
+        "user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36",
+        "sec_ch_ua": '"Not_A Brand";v="8", "Chromium";v="118", "Google Chrome";v="118"',
+        "sec_ch_ua_platform": '"Linux"',
+        "viewport": "1920x1080"
+    },
+    {
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0",
+        "sec_ch_ua": None,
+        "sec_ch_ua_platform": None,
+        "viewport": "1366x768"
+    },
+    {
+        "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
+        "sec_ch_ua": None,
+        "sec_ch_ua_platform": None,
+        "viewport": "1440x900"
+    }
 ]
 
-def build_headers():
-    ua = random.choice(USER_AGENTS)
-    h = BASE_HEADERS.copy()
-    h["User-Agent"] = ua
+# Referrers realistas para simular navegação orgânica
+REALISTIC_REFERRERS = [
+    "https://www.google.com/",
+    "https://www.google.com.br/",
+    "https://search.yahoo.com/",
+    "https://www.bing.com/",
+    "https://duckduckgo.com/",
+    None  # Acesso direto
+]
 
-    # Headers específicos por tipo de navegador
-    if "Chrome" in ua:
-        h["Sec-Ch-Ua"] = "\"Not_A Brand\";v=\"8\", \"Chromium\";v=\"120\", \"Google Chrome\";v=\"120\""
-        h["Sec-Ch-Ua-Mobile"] = "?0"
-        h["Sec-Ch-Ua-Platform"] = "\"Windows\"" if "Windows" in ua else "\"macOS\""
-    elif "Firefox" in ua:
-        h.pop("Sec-Ch-Ua", None)
-        h.pop("Sec-Ch-Ua-Mobile", None)
-        h.pop("Sec-Ch-Ua-Platform", None)
-    elif "Safari" in ua and "Chrome" not in ua:
-        h.pop("Sec-Ch-Ua", None)
-        h.pop("Sec-Ch-Ua-Mobile", None)
-        h.pop("Sec-Ch-Ua-Platform", None)
+# IPs de DNS públicos para resolver domínios (evita DNS corporativo)
+PUBLIC_DNS = ["8.8.8.8", "1.1.1.1", "208.67.222.222"]
 
-    # Varia o referer
-    referers = [
-        "https://www.google.com/",
-        "https://www.bing.com/",
-        "https://br.search.yahoo.com/",
-        None
-    ]
-    referer = random.choice(referers)
-    if referer:
-        h["Referer"] = referer
+def build_realistic_headers():
+    """Gera headers realistas baseados em navegadores reais"""
+    browser = random.choice(REALISTIC_BROWSERS)
+    referrer = random.choice(REALISTIC_REFERRERS)
+    
+    headers = {
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        "Accept-Language": random.choice([
+            "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+            "pt-BR,pt;q=0.9,en;q=0.8",
+            "pt-BR,en-US;q=0.9,en;q=0.8",
+            "pt-BR,pt;q=0.8,en;q=0.5,*;q=0.3"
+        ]),
+        "Accept-Encoding": "gzip, deflate, br",
+        "Cache-Control": random.choice(["no-cache", "max-age=0", "no-store"]),
+        "Connection": "keep-alive",
+        "User-Agent": browser["user_agent"],
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": random.choice(["none", "same-origin", "cross-site"]),
+        "Sec-Fetch-User": "?1",
+        "DNT": random.choice(["1", None]),  # Do Not Track (às vezes presente)
+    }
+    
+    # Adicionar headers específicos do Chrome
+    if browser["sec_ch_ua"]:
+        headers["Sec-Ch-Ua"] = browser["sec_ch_ua"]
+        headers["Sec-Ch-Ua-Mobile"] = "?0"
+        headers["Sec-Ch-Ua-Platform"] = browser["sec_ch_ua_platform"]
+        
+    # Adicionar referrer se presente
+    if referrer:
+        headers["Referer"] = referrer
+        
+    # Headers adicionais para parecer mais humano
+    if random.random() > 0.7:  # 30% das vezes
+        headers["X-Requested-With"] = "XMLHttpRequest"
+        
+    # Viewport hints (Chrome)
+    if "Chrome" in browser["user_agent"] and random.random() > 0.5:
+        headers["Sec-Ch-Viewport-Width"] = browser["viewport"].split('x')[0]
+        headers["Sec-Ch-Viewport-Height"] = browser["viewport"].split('x')[1]
+        
+    # Remover headers com valor None
+    return {k: v for k, v in headers.items() if v is not None}
 
-    return h
+def simulate_human_behavior(session: Session, url: str):
+    """Simula comportamento humano antes de fazer scraping"""
+    try:
+        parsed_url = urlparse(url)
+        base_domain = f"{parsed_url.scheme}://{parsed_url.netloc}"
+        
+        # 1. Visitar página inicial (30% das vezes)
+        if random.random() > 0.7:
+            headers = build_realistic_headers()
+            session.get(base_domain, headers=headers, timeout=10)
+            time.sleep(random.uniform(1, 3))
+            
+        # 2. Fazer uma busca genérica primeiro (20% das vezes)
+        if random.random() > 0.8:
+            if "mercadolivre" in url:
+                generic_search = f"{base_domain}/jm/search?as_word=produto"
+            elif "amazon" in url:
+                generic_search = f"{base_domain}/s?k=produto"
+            else:
+                return
+                
+            headers = build_realistic_headers()
+            session.get(generic_search, headers=headers, timeout=10)
+            time.sleep(random.uniform(2, 4))
+            
+    except Exception:
+        pass  # Se falhar, continua normalmente
+
+def create_stealth_session():
+    """Cria uma sessão com configurações stealth"""
+    session = Session()
+    
+    # Configurar timeouts realistas
+    session.timeout = (10, 30)  # connect, read
+    
+    # Configurar SSL para parecer navegador real
+    session.verify = True
+    
+    # Pool de conexões menor (navegadores limitam)
+    adapter = requests.adapters.HTTPAdapter(
+        pool_connections=2,
+        pool_maxsize=5,
+        max_retries=0
+    )
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    
+    return session
+
+# Alias para manter compatibilidade
+build_headers = build_realistic_headers
 
 # ==========================
 # PROXIES (opcional)
@@ -301,22 +389,42 @@ def _parse_preco(texto: Optional[str]) -> Optional[float]:
         return None
 
 def _inicializar_sessao(site_config: dict) -> Session:
-    s = Session()
-    # Primeiro hit para obter cookies base (importante para ML)
+    """Inicializa sessão stealth com comportamento humano simulado"""
+    s = create_stealth_session()
+    
+    # Simular comportamento humano na inicialização
     try:
-        headers = build_headers()
+        headers = build_realistic_headers()
+        
         if site_config['nome'] == 'Mercado Livre':
+            base_url = "https://www.mercadolivre.com.br"
             # Primeiro acesso à página principal
-            s.get("https://www.mercadolivre.com.br", headers=headers, timeout=15)
-            time.sleep(0.5)  # Pequeno delay para parecer mais natural
+            s.get(base_url, headers=headers, timeout=15)
+            
+            # Simular busca genérica (às vezes)
+            if random.random() > 0.6:
+                time.sleep(random.uniform(1.5, 3.5))
+                headers = build_realistic_headers()
+                s.get(f"{base_url}/ofertas", headers=headers, timeout=15)
+                
         elif site_config['nome'] == 'Amazon':
-            s.get("https://www.amazon.com.br", headers=headers, timeout=15)
-            time.sleep(0.5)
+            base_url = "https://www.amazon.com.br"
+            s.get(base_url, headers=headers, timeout=15)
+            
+            if random.random() > 0.6:
+                time.sleep(random.uniform(1.5, 3.5))
+                headers = build_realistic_headers()
+                s.get(f"{base_url}/gp/bestsellers", headers=headers, timeout=15)
+                
         elif site_config['nome'] == 'eBay':
-            s.get("https://www.ebay.com.br", headers=headers, timeout=15)
-            time.sleep(0.5)
+            base_url = "https://www.ebay.com.br"
+            s.get(base_url, headers=headers, timeout=15)
+            
+        # Delay humano após inicialização
+        time.sleep(random.uniform(2, 5))
+        
     except Exception as e:
-        print(f"Aviso: Não foi possível inicializar sessão para {site_config['nome']}: {e}")
+        print(f"Aviso: Não foi possível inicializar sessão stealth para {site_config['nome']}: {e}")
     return s
 
 def _detectar_captcha(html: str) -> bool:
@@ -402,44 +510,79 @@ def realizar_scraping(job_id: str, site_config: dict, url_base: str, termo_busca
             job_storage[job_id]["progress"] = f"Processando página {pagina}..."
             
             try:
+                # Simular comportamento humano antes da requisição
+                if pagina == 1:
+                    simulate_human_behavior(sessao, url)
+                
+                # Delay humano entre páginas
+                if pagina > 1:
+                    human_delay = random.uniform(3, 8)
+                    job_storage[job_id]["progress"] = f"Aguardando {human_delay:.1f}s (simulação humana)..."
+                    time.sleep(human_delay)
+                
                 attempt = 0
                 max_retries = int(os.environ.get("SCRAPER_MAX_RETRIES", "3"))
-                backoff_base = float(os.environ.get("SCRAPER_BACKOFF_BASE", "1.5"))
+                backoff_base = float(os.environ.get("SCRAPER_BACKOFF_BASE", "2.0"))  # Aumentado
+                
                 while True:
-                    headers = build_headers()
+                    headers = build_realistic_headers()
                     proxy = _obter_proxy()
-                    req_kwargs = {"headers": headers, "timeout": 15}
+                    
+                    # Simular scroll ou interação (adicionar parâmetros)
+                    scroll_params = {}
+                    if random.random() > 0.7:  # 30% das vezes
+                        scroll_params = {
+                            'viewport_width': random.choice(['1366', '1920', '1440']),
+                            'viewport_height': random.choice(['768', '1080', '900']),
+                            'pixel_ratio': random.choice(['1', '2'])
+                        }
+                        # Adicionar como headers customizados
+                        headers.update({
+                            'Sec-Ch-Viewport-Width': scroll_params.get('viewport_width'),
+                            'Sec-Ch-DPR': scroll_params.get('pixel_ratio')
+                        })
+                    
+                    req_kwargs = {
+                        "headers": headers, 
+                        "timeout": (15, 30),  # connect, read timeout
+                        "allow_redirects": True
+                    }
+                    
                     if proxy:
                         req_kwargs["proxies"] = {"http": proxy, "https": proxy}
                         job_storage[job_id]['debug']['ultimo_proxy'] = proxy
+                    
                     try:
                         resp = sessao.get(url, **req_kwargs)
                     except Exception as proxy_err:
                         job_storage[job_id]['debug']['erros_proxy'] += 1
                         if proxy and job_storage[job_id]['debug']['erros_proxy'] < len(PROXIES_LIST) + 3:
-                            # tenta próximo proxy
                             continue
                         job_storage[job_id]["progress"] = f"Erro de rede: {proxy_err}"
                         break
+                        
                     job_storage[job_id]['debug']['tentativas'] += 1
                     status = resp.status_code
+                    
                     if status == 200:
                         break
-                    if status in (429, 503, 500) and attempt < max_retries:
-                        sleep_for = (backoff_base ** attempt) + random.uniform(0, 0.5)
-                        job_storage[job_id]["progress"] = f"Status {status} - retry {attempt+1}/{max_retries} em {sleep_for:.1f}s"
+                    elif status in (403, 429, 503, 500) and attempt < max_retries:
+                        # Backoff exponencial mais agressivo para anti-bot
+                        sleep_for = (backoff_base ** attempt) + random.uniform(2, 8)
+                        job_storage[job_id]["progress"] = f"Status {status} (anti-bot) - aguardando {sleep_for:.1f}s..."
                         time.sleep(sleep_for)
                         attempt += 1
                         continue
-                    # Falhou definitivo
-                    job_storage[job_id]["progress"] = f"Falha HTTP {status} - encerrando"
-                    # Salvar HTML para debug
-                    try:
-                        debug_path = f"/tmp/scraping/job_{job_id}_pagina_{pagina}_erro.html"
-                        with open(debug_path, 'w', encoding='utf-8') as f:
-                            f.write(resp.text[:200000])
-                    except Exception:
-                        pass
+                    else:
+                        # Falhou definitivo
+                        job_storage[job_id]["progress"] = f"Bloqueado HTTP {status} - encerrando"
+                        try:
+                            debug_path = f"/tmp/scraping/job_{job_id}_pagina_{pagina}_bloqueado.html"
+                            with open(debug_path, 'w', encoding='utf-8') as f:
+                                f.write(resp.text[:300000])  # Mais conteúdo para debug
+                        except Exception:
+                            pass
+                        break
                     break
                 if resp.status_code != 200:
                     break
